@@ -4,12 +4,9 @@
 // };
 
 const express = require('express');
-// const asyncHandler = require('express-async-handler');
 
 // File upload function
-const fs = require('fs');
-// const multer = require('multer');
-// const upload = multer({dest: 'tmp/'});
+// const fs = require('fs');
 
 // const basicAuth = require('basic-auth-connect');
 
@@ -49,21 +46,6 @@ server
    //    AUTHINFO.password 
    // ))
    .use(express.static('public'))
-
-
-// Auth
-   // token 
-   .get('/token', function (req, res) {
-      if (sttAuthenticator) {
-         sttAuthenticator.tokenManager.requestToken()
-             .then(({result}) =>{
-               // console.log(result);
-               res.json({accessToken: result.access_token});
-             })
-      } else {
-         res.status(500).send({"error": "No AccessToken."});
-      }
-   })
 
 // Analyze
    .post('/analyze', function (req, res) {

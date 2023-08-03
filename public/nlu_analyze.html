@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+
+  <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@mdi/font@6.x/css/materialdesignicons.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.min.css" rel="stylesheet">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NLU test</title>
+  <style>
+    [v-cloak] {
+      display: none;
+    }
+    .wdt5 {
+      width: 5rem;
+    }
+    .wdt12 {
+      width: 12rem;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="app" v-cloak>
+    <v-app>
+      <v-app-bar app>
+
+        <v-app-bar-title>NLU Analyze</v-app-bar-title>
+        <v-spacer></v-spacer>
+        <v-switch
+          v-model="local_mode"
+          :label="`LocalMode`"
+          hide-details
+          class="ma-2"
+        ></v-switch>
+
+      </v-app-bar>
+
+      <!-- Toast Component -->
+      <v-snackbar
+        v-model="toast.show"
+        bottom
+        multi-line
+        :timeout="toast.timeout"
+        :color="toast.type"
+        @click="toast.show = false">
+        <div class="rw">{{ toast.text }}</div>
+      </v-snackbar>
+
+      <v-main>
+        <v-container>
+          <v-divider></v-divider>
+          <div class="text-h5 primary--text">Send Text Data:</div>
+          <div class="ma-2">
+            <v-combobox
+              class="flex-grow-1 ma_lr_1rem ma_tp_05rem"
+              v-model="send_text"
+              :items="sample_text"
+              label="アンケート:感想コメント"
+              outlined
+              clearable
+              counter
+              dense
+              rows="3"
+            ></v-combobox>
+
+            <v-row class="justify-center align-center ma-3">
+              <v-btn 
+                tile color="primary"
+                elevation="1"
+                rounded
+                @click="sendRequest()">
+                <v-icon left>mdi-send</v-icon>
+                <span>Send Text</span>
+              </v-btn>
+            </v-row>
+          </div>
+
+          <v-divider></v-divider>
+          <div class="text-h5 primary--text">Result:</div>
+          <div class="ma-2">
+            <v-row class="justify-center">
+              <div v-if="isLoading">
+                <v-progress-circular
+                  v-show="isLoading"
+                  :size="50"
+                  color="primary"
+                  indeterminate
+                ></v-progress-circular>
+              </div>
+              <div v-else class="flex-grow-1">
+                <div class="ma-5">
+                  <div class="ma-3 elevation-3" v-if="ret_analyzed && ret_analyzed.sentiment">
+                    <div class="accent text-h5">評判分析</div>
+                    <div class="d-flex align-center">
+                      <div class="wdt12 ma-2">
+                        <v-progress-linear :value="calculatedValue(ret_analyzed.sentiment.document.score)" color="blue" height="20" :max="1.0" class="">
+                        <div>{{ ret_analyzed.sentiment.document.score }}</div>
+                      </div>
+                      <div>{{ ret_analyzed.sentiment.document.label }}</div>
+                    </div>
+                  </div>
+
+                  <div class="ma-3 elevation-3" v-if="ret_analyzed && ret_analyzed.keywords">
+                    <div class="accent text-h5">キーワード抽出</div>
+                    <v-simple-table dense>
+                      <template v-slot:default>
+                        <thead>
+                          <tr>
+                            <th class="text-left">text</th>
+                            <th class="text-left">score</th>
+                            <th class="text-left">sentiment</th>
+                            <th class="text-left">relevance</th>
+                            <th class="text-left">count</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="item in ret_analyzed.keywords">
+                            <td>{{ item.text }}</td>
+                            <td>
+                              <v-progress-linear :value="calculatedValue(item.sentiment.score)" color="blue" height="20" :max="1.0" class="">
+                              <div>{{ item.sentiment.score }}</div>
+                            </td>
+                            <td>{{ item.sentiment.label }}</td>
+                            <td>{{ item.relevance }}</td>
+                            <td>{{ item.count }}</td>
+                          </tr>
+                        </tbody>
+                      </template>
+                    </v-simple-table>
+                  </div>
+
+                  <div class="ma-3 elevation-3" v-if="ret_analyzed && ret_analyzed.concepts">
+                    <div class="accent text-h5">概念抽出</div>
+                    <div class="d-flex">
+                      <v-chip class="ma-2"
+                        v-for="item in ret_analyzed.concepts"
+                        :color="calculatedColor(item.relevance)">
+                        <a :href="item.dbpedia_resource" target="_blank">
+                          <div class="white--text">{{ item.text }}</div>
+                        </a>
+                      </v-chip>
+                    </div>
+                  </div>
+
+                  <div class="ma-3 elevation-3" v-if="ret_analyzed && ret_analyzed.categories">
+                    <div class="accent text-h5">カテゴリー抽出</div>
+                    <v-simple-table dense>
+                      <template v-slot:default>
+                        <thead>
+                          <tr>
+                            <th class="text-left">label</th>
+                            <th class="text-left">score</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="item in ret_analyzed.categories">
+                            <td>{{ item.label }}</td>
+                            <td>
+                              <v-progress-linear :value="calculatedValue(item.score)" color="blue" height="20" :max="1.0" class="">
+                              <div>{{ item.score }}</div>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </template>
+                    </v-simple-table>
+                  </div>
+
+                  <div class="ma-3 elevation-3" v-if="ret_analyzed && ret_analyzed.entities">
+                    <div class="accent text-h5">エンティティ抽出</div>
+                    <v-simple-table dense>
+                      <template v-slot:default>
+                        <thead>
+                          <tr>
+                            <th class="text-left">text</th>
+                            <th class="text-left">type</th>
+                            <th class="text-left">confidence</th>
+                            <th class="text-left">relevance</th>
+                            <th class="text-left">sentiment</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="item in ret_analyzed.entities">
+                            <td>{{ item.text }}</td>
+                            <td>{{ item.type }}</td>
+                            <td>
+                              <v-progress-linear :value="calculatedValue(item.confidence)" color="blue" height="20" :max="1.0" class="">
+                              <div>{{ item.confidence }}</div>
+                            </td>
+                            <td>
+                              <v-progress-linear :value="calculatedValue(item.relevance)" color="blue" height="20" :max="1.0" class="">
+                              <div>{{ item.relevance }}</div>
+                            </td>
+                            <td>
+                              <v-progress-linear :value="calculatedValue(item.sentiment.score)" color="blue" height="20" :max="1.0" class="">
+                              <div>{{ item.sentiment.label }}</div>
+                            </td>
+
+                          </tr>
+                        </tbody>
+                      </template>
+                    </v-simple-table>
+                  </div>
+
+                  <!-- <div class="ma-3 elevation-3" v-if="ret_analyzed && ret_analyzed.relations">
+                    <div class="accent text-h5">関係抽出</div>
+                  </div> -->
+
+                  <div class="ma-3 elevation-3" v-if="ret_analyzed && ret_analyzed.semantic_roles">
+                    <div class="accent text-h5">構文解析</div>
+
+                    <v-row class="primary--text text-sm-caption">
+                      <v-col class="col-4">subject</v-col>
+                      <v-col class="col-4">action</v-col>
+                      <v-col class="col-4">object</v-col>
+                    </v-row>
+
+                    <v-row v-for="item in ret_analyzed.semantic_roles"
+>
+                      <v-col class="col-4">
+                        <div v-if="item.subject">{{ item.subject.text }}</div>
+                      </v-col>
+                      
+                      <v-col class="col-4">
+                        <div v-if="item.action">{{ item.action.text }}</div>
+                      </v-col>
+                      
+                      <v-col class="col-4">
+                        <div v-if="item.object">{{ item.object.text }}</div>
+                      </v-col>
+                    </v-row>
+
+                  </div>
+
+                </div>
+              </div>
+            </v-row>
+          </div>
+
+        </v-container>
+      </v-main>
+    </v-app>
+  </div>
+
+
+  <script src="https://cdn.jsdelivr.net/npm/vue@2.x/dist/vue.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.js"></script>
+  <script>
+    const LOCAL_URL = "http://localhost:3000/";
+    const BRIDGE_URL = "https://nlu-bridge.10xsz3m0vfdh.jp-tok.codeengine.appdomain.cloud/";
+
+    new Vue({
+      el: '#app',
+      vuetify: new Vuetify(),
+
+      data:() => ({
+        local_mode: true,
+        
+        // components
+        toast:{
+          show: false,
+          timeout: 5000,
+          type: "primary",
+          text:""
+        },
+
+        isLoading: false,
+
+        // query settings
+        is_sentiment: false,
+        is_emotion: false,
+
+        // params
+        parameters: {
+          features: {},
+          text: "",
+          // html: "",
+          // url: "",
+          // clean: true, // webpage cleaning
+          // xpath: "//div[@class='wd_title wd_language_left' or @class='wd_subtitle wd_language_left']",
+          // fallbackToRaw: true, // HTML cleaning failed.
+          returnAnalyzedText: false,
+          language: "ja",
+          // limitTextCharacters: 100
+        },
+
+        features:{
+          // classifications: {
+          //   model:"", // need custom model
+          // },
+          concepts: {
+            limit: 5
+          },
+          // emotion: {
+          //   document: true, // Japanease not support
+          //   // targets: ""
+          // },
+          entities: {
+            limit: 250,
+            mentions: true,
+            // model: "",
+            sentiment: true,
+            // emotion: true
+          },
+          keywords: {
+            limit: 10,
+            sentiment: true,
+            // emotion: true
+          },
+          // metadata: {}, // URL,HTML only
+          relations: {
+            // model:"" // need custom model
+          },
+          semantic_roles: {
+            limit: 10,
+            keywords: true,
+            entities: true
+          },
+          sentiment: {
+            document: true,
+            // targets: ["スキンケア"]
+          },
+          // summarization: {
+          //   limit: 10 // Beta Function. English and Dallas Region Only.
+          // },
+          categories: {
+            // explanation: false, // English only
+            limit: 5,
+            // model: ""
+          },
+          syntax: {
+            // tokens: {
+            //   lemma: true,
+            //   part_of_speech: false
+            // },
+            sentences: true
+          }
+
+        },
+
+        send_text:"講義の中でのディスカッションやグループワークは、とても有意義でした。他の学生と意見を交換し、自分の考え方を深めることができました。",
+
+        sample_text:[
+          "講義の内容がとても充実していました。今まで知らなかったことをたくさん学べて、とても興味深かったです。",
+          "講師の説明がとてもわかりやすかったため、内容を理解することができました。講師の説明のおかげで、自分でも新しいアイデアを考えることができました。",
+          "講義の中でのディスカッションやグループワークは、とても有意義でした。他の学生と意見を交換し、自分の考え方を深めることができました。",
+          "教材や資料がとても充実していたため、講義内容を理解することができました。また、教材を活用することで、学びを深めることができました。",
+          "講義のペースが速すぎると感じることがありましたが、講師が進めるペースについていけるようになってきました。",
+          "講義時間帯が遅いため、集中力を維持することが難しかったです。もう少し早い時間に講義があると、より集中して講義を受けることができると思います。",
+          "講義内容が少し難しかったため、もう少し簡単な内容から始めてほしかったです。もう少し基礎的な内容を網羅することで、より学生全員が理解しやすくなると思います。",
+          "講義の構成がとても良く、論理的にまとめられていたため、とてもわかりやすかったです。講義の構成を見習って、自分でも論理的な文章を書けるようになりたいと思います。",
+        ],
+
+        // result
+        ret_score: 0,
+        ret_analyzed: null,
+      }),
+
+      methods: {
+        checkNullText(text) {
+          if (!text) text="";
+          return text;
+        },
+        calculatedValue(val) {
+          return val * 100;
+        },
+        calculatedColor(val) {
+          // console.log(val);
+          return (val >= 0.4) ? "primary" : "secondary";
+        },
+
+        // components
+        showToast(msg) {
+          this.toast.text = msg;
+          this.toast.show = true;
+        },
+
+        // Send Data
+        sendRequest(){
+          let sendurl = `${(this.local_mode) ? LOCAL_URL : BRIDGE_URL}analyze`;
+
+          // create params
+          this.parameters.features = this.features;
+
+          this.parameters.text = this.send_text; // Ugh! other types.
+
+          this.isLoading = true;
+
+          let options = {
+            method: "POST",
+            // mode: 'no-cors',
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(this.parameters)
+          };
+
+          fetch(`${sendurl}`, options)
+            .then(res => res.json())
+            .then(json => {
+              console.log(json);
+              this.isLoading = false;
+              this.setResult(json);
+            })
+        },
+
+        // Result
+        setResult(json){
+          if (json) {
+            this.ret_analyzed = json;
+          }
+        },
+      },
+      mounted() {
+        console.log("vue mounted.");
+
+        // this.ret_analyzed = {
+        //   "usage": {
+        //       "text_units": 1,
+        //       "text_characters": 50,
+        //       "features": 8
+        //   },
+        //   "syntax": {
+        //       "sentences": [
+        //           {
+        //               "text": "講義の内容がとても充実していました。",
+        //               "location": [
+        //                   0,
+        //                   18
+        //               ]
+        //           },
+        //           {
+        //               "text": "今まで知らなかったことをたくさん学べて、とても興味深かったです。",
+        //               "location": [
+        //                   18,
+        //                   50
+        //               ]
+        //           }
+        //       ]
+        //   },
+        //   "sentiment": {
+        //       "document": {
+        //           "score": 0.866595,
+        //           "label": "positive"
+        //       }
+        //   },
+        //   "semantic_roles": [
+        //       {
+        //           "subject": {
+        //               "text": "講義の内容が"
+        //           },
+        //           "sentence": "講義の内容がとても充実していました。今まで知らなかったことをたくさん学べて、とても興味深かったです。",
+        //           "action": {
+        //               "verb": {
+        //                   "text": "して"
+        //               },
+        //               "text": "して",
+        //               "normalized": "して"
+        //           }
+        //       },
+        //       {
+        //           "sentence": "講義の内容がとても充実していました。今まで知らなかったことをたくさん学べて、とても興味深かったです。",
+        //           "object": {
+        //               "text": "講義の内容がとても充実していました。今まで知らなかったことを"
+        //           },
+        //           "action": {
+        //               "verb": {
+        //                   "text": "学べて"
+        //               },
+        //               "text": "学べて",
+        //               "normalized": "学べて"
+        //           }
+        //       }
+        //   ],
+        //   "relations": [],
+        //   "language": "ja",
+        //   "keywords": [
+        //       {
+        //           "text": "講義の内容",
+        //           "sentiment": {
+        //               "score": 0.841198,
+        //               "label": "positive"
+        //           },
+        //           "relevance": 0.5,
+        //           "count": 1
+        //       }
+        //   ],
+        //   "entities": [],
+        //   "concepts": [
+        //       {
+        //           "text": "コンテンツ",
+        //           "relevance": 0.465042,
+        //           "dbpedia_resource": "http://ja.dbpedia.org/resource/コンテンツ"
+        //       },
+        //       {
+        //           "text": "容量",
+        //           "relevance": 0.465042,
+        //           "dbpedia_resource": "http://ja.dbpedia.org/resource/容量"
+        //       },
+        //       {
+        //           "text": "証明",
+        //           "relevance": 0.183379,
+        //           "dbpedia_resource": "http://ja.dbpedia.org/resource/証明"
+        //       },
+        //       {
+        //           "text": "メニュー",
+        //           "relevance": 0.183379,
+        //           "dbpedia_resource": "http://ja.dbpedia.org/resource/メニュー"
+        //       },
+        //       {
+        //           "text": "合図",
+        //           "relevance": 0.183379,
+        //           "dbpedia_resource": "http://ja.dbpedia.org/resource/合図"
+        //       }
+        //   ],
+        //   "categories": [
+        //       {
+        //           "score": 0.668673,
+        //           "label": "/television"
+        //       },
+        //       {
+        //           "score": 0.659344,
+        //           "label": "/television/reality tv"
+        //       },
+        //       {
+        //           "score": 0.569201,
+        //           "label": "/television/music tv"
+        //       },
+        //       {
+        //           "score": 0.546208,
+        //           "label": "/family and relationships"
+        //       },
+        //       {
+        //           "score": 0.522007,
+        //           "label": "/video gaming/video game genres/sports video games"
+        //       },
+        //       {
+        //           "score": 0.515691,
+        //           "label": "/movies"
+        //       },
+        //       {
+        //           "score": 0.515313,
+        //           "label": "/science"
+        //       },
+        //       {
+        //           "score": 0.512431,
+        //           "label": "/books and literature/children's literature"
+        //       },
+        //       {
+        //           "score": 0.511615,
+        //           "label": "/news and politics/international news"
+        //       },
+        //       {
+        //           "score": 0.507628,
+        //           "label": "/video gaming/console games"
+        //       }
+        //   ]
+
+        // };
+
+        //test
+        // this.setResult(DUMMY_JSON);
+      }
+    })
+
+  </script>
+</body>
+
+</html>
